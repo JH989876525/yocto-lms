@@ -1,0 +1,8 @@
+# cache data and per-release directories (anything but the tools)
+/*/
+!/tools/
+
+# generated
+*.list
+__pycache__/
+*.pyc
