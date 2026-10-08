@@ -17,12 +17,14 @@ function lms(){
         5|scarthgap)
             export DL_DIR="${LMS_HOME}/scarthgap/downloads"
             export SSTATE_DIR="${LMS_HOME}/scarthgap/sstate-cache"
+            mkdir -p "$DL_DIR" "$SSTATE_DIR"
             echo "DL_DIR=$DL_DIR"
             echo "SSTATE_DIR=$SSTATE_DIR"
             ;;
         6|wrynose)
             export DL_DIR="${LMS_HOME}/wrynose/downloads"
             export SSTATE_DIR="${LMS_HOME}/wrynose/sstate-cache"
+            mkdir -p "$DL_DIR" "$SSTATE_DIR"
             echo "DL_DIR=$DL_DIR"
             echo "SSTATE_DIR=$SSTATE_DIR"
             ;;

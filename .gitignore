@@ -1,6 +1,7 @@
 # cache data and per-release directories (anything but the tools)
 /*/
 !/tools/
+!/doc/
 
 # generated
 *.list

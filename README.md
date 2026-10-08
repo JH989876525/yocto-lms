@@ -1,72 +1,119 @@
-# lms — sstate-cache & downloads management
+# yocto-lms — Local Mirror Server for Yocto
 
-Shared `DL_DIR` / `SSTATE_DIR` for the Yocto builds on this machine.
+[繁體中文](doc/README_zh_tw.md)
+
+Shared `DL_DIR` / `SSTATE_DIR` for the Yocto builds on this machine: one
+downloads + sstate-cache set per release, a single shared `git2/` mirror
+directory, and a tool to prune stale sstate objects.
+
+`lms` is a shell function (`lms.sh`) that selects a release and exports
+`DL_DIR` / `SSTATE_DIR`; it is meant for `kas-container` builds.
+
+## Layout
 
 ```
-/mnt/2025/lms/
-├── lms.sh                  # `lms` shell function, sourced from ~/.bashrc
-├── tools/sstate-prune.py   # sstate pruning utility
-├── scarthgap/{downloads,sstate-cache}
-└── wrynose/{downloads,sstate-cache}
+<lms>/                      the directory containing this README
+├── lms.sh                  `lms` and `kas-container` shell functions
+├── tools/
+│   └── sstate-prune.py     sstate pruning utility
+├── git2/                   shared bitbake git mirrors
+├── scarthgap/
+│   ├── downloads/          git2 -> ../git2
+│   ├── sstate-cache/
+│   └── git2 -> ../git2
+├── wrynose/                same as scarthgap/
+├── sstate-prune.list       prune candidates (generated, git-ignored)
+└── doc/                    README_zh_tw.md
 ```
 
-## Install
+`.gitignore` excludes the per-release directories and `git2/` (cache data) and
+the generated `*.list`.
+
+## Prerequisites
+
+- bash, python3
+- `kas-container` (only for container builds)
+- Disk space: the caches are large; `lms status` shows usage and free space.
+
+## Quick start
+
 ```bash
-./install.sh [release ...]     # default: scarthgap wrynose; safe to re-run
-```
-Creates `<rel>/{downloads,sstate-cache}` and the shared `git2/` links, and adds a
-block to `~/.bashrc` that sources `lms.sh` (skipped if `~/.bashrc` already sources
-an `lms.sh`). It never moves or deletes cache data. Open a new shell afterwards.
-`LMS_HOME` is derived from the location of `lms.sh`; `LMS_STAMPS_GLOB` (default
-`/mnt/2026/*/build*/tmp*/stamps`) tells `prune` where to find the builds' stamps.
+echo 'source <lms>/lms.sh' >> ~/.bashrc    # then open a new shell
 
-## Usage
-```bash
-lms 6            # select wrynose (5 = scarthgap); exports DL_DIR and SSTATE_DIR
+lms 6            # select wrynose (5 = scarthgap); creates and exports DL_DIR and SSTATE_DIR
 lms status       # sizes of the selected release and free disk space
-lms prune        # dry-run: writes /mnt/2025/lms/sstate-prune.list, deletes nothing
-lms prune --apply
+kas-container build ...                     # build as usual
 ```
-Build as usual after selecting a release, e.g. `kas-container build ...`
-(kas-container forwards `DL_DIR` and `SSTATE_DIR` into the container).
 
-## sstate prune rule
+`kas-container` forwards `DL_DIR` and `SSTATE_DIR` into the container.
+
+Configuration (environment variables):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LMS_HOME` | directory of `lms.sh` | root of the cache layout |
+| `LMS_STAMPS_GLOB` | `/mnt/2026/*/build*/tmp*/stamps` | where `prune` looks for build stamps |
+| `LMS_STAMPS` | auto-detected | colon-separated stamps dirs; overrides the glob |
+
+## Workflow
+
+### 1. Select a release
+
+```bash
+lms 5            # scarthgap
+lms 6            # wrynose
+```
+
+### 2. Prune sstate-cache
+
 An sstate object is kept if any of these is true:
+
 1. its hash is referenced by the stamps of a current build,
 2. it was accessed within `--days` (default 14),
 3. it is among the newest `--keep-newest` (default 5) of its recipe/arch/task.
 
 Everything else is a candidate. `prune` runs on the host and auto-detects the
-stamps of every build under `/mnt/2026/*/build*/tmp*/stamps`; set `LMS_STAMPS`
-(colon separated) to override. Other options: `--min-free GiB` (do nothing while
-there is enough free space).
+stamps of every build matching `LMS_STAMPS_GLOB`.
 
-Always review `sstate-prune.list` before `--apply`.
+| Option | Meaning |
+|---|---|
+| `--apply` | actually delete (default is dry-run) |
+| `--days N` | keep objects accessed within N days |
+| `--keep-newest N` | keep the newest N per recipe/arch/task |
+| `--min-free GiB` | do nothing while there is enough free space |
+
+```bash
+lms prune                              # dry-run, writes <lms>/sstate-prune.list
+lms prune --days 30 --keep-newest 10   # more conservative dry-run
+lms prune --min-free 500               # only prune when free space is below 500 GiB
+lms prune --apply                      # delete the candidates
+lms prune --days 7 --min-free 300 --apply
+LMS_STAMPS=/work/a/build/tmp/stamps:/work/b/build/tmp/stamps lms prune   # explicit stamps dirs
+```
+
+Always review `sstate-prune.list` before `--apply`. `prune` only handles
+sstate; downloads are not pruned automatically.
+
+### 3. Add a release
+
+```bash
+mkdir -p <lms>/<rel>/{downloads,sstate-cache}
+ln -s ../git2 <lms>/<rel>/downloads/git2
+ln -s ../git2 <lms>/<rel>/git2
+```
+
+Then add the release to the `case` in `lms.sh`.
 
 ## Shared git2/
-`git2/` (bitbake's bare git mirrors, the bulk of downloads) is shared by all releases:
 
-```
-/mnt/2025/lms/git2/                      real, shared
-/mnt/2025/lms/<rel>/downloads/git2  ->  ../git2
-/mnt/2025/lms/<rel>/git2            ->  ../git2   (makes the link resolve on the host)
-```
-Everything else under `downloads/` stays per release, because some release-specific
-tarballs share a file name but differ in content (e.g. Qualcomm camx / chicdk / video-ctrl).
+`git2/` (bitbake's bare git mirrors, the bulk of downloads) is shared by all
+releases through relative symlinks; everything else under `downloads/` stays
+per release.
 
-- **kas-container**: it only mounts `DL_DIR` (as `/downloads`) and `SSTATE_DIR`, so
-  the relative link resolves to `/git2` inside the container. The `kas-container`
-  shell function in `lms.sh` adds `-v /mnt/2025/lms/git2:/git2`. Calling
-  `/usr/bin/kas-container` directly (scripts, cron) bypasses it and the link dangles.
-- **Merge**: repos in both releases were merged into one; the other release's refs
-  live under `refs/lms/<release>/*` so no object is ever garbage collected.
-- **Tool**: `tools/git2-share.py` (dry-run by default; `--apply`, `--purge-old`).
-  `--apply` keeps the merged-away copies in `<rel>/downloads/git2.old` until
-  `--purge-old` removes them.
-- **Rollback**: replace the symlink with a copy (`rm downloads/git2 && cp -a git2 downloads/git2`).
-
-Verified: wrynose `bitbake --runall=fetch qcom-multimedia-proprietary-image` + unpack of
-`opencv`/`linux-qcom` in kas-container; scarthgap bitbake 2.8.1 offline fetch and unpack of a
-commit that only existed in scarthgap's old copy.
-
-`prune` only handles sstate. Downloads are not pruned automatically.
+- **kas-container** only mounts `DL_DIR` (as `/downloads`), so the link resolves
+  to `/git2` in the container. The `kas-container` function in `lms.sh` adds
+  `-v <lms>/git2:/git2`; calling `/usr/bin/kas-container` directly (scripts,
+  cron) bypasses it and the link dangles.
+- **Rollback**: `rm <rel>/downloads/git2 && cp -a <lms>/git2 <rel>/downloads/git2`
+- `<rel>/downloads/git2.old` are leftovers of the one-time merge; delete them
+  once builds are verified.
