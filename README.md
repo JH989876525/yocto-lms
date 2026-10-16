@@ -38,7 +38,8 @@ the generated `*.list`.
 ## Quick start
 
 ```bash
-echo 'source <lms>/lms.sh' >> ~/.bashrc    # then open a new shell
+make install     # adds `source <lms>/lms.sh` to ~/.bashrc (idempotent); then open a new shell
+                 # `make uninstall` removes it
 
 lms 6            # select wrynose (5 = scarthgap); creates and exports DL_DIR and SSTATE_DIR
 lms status       # sizes of the selected release and free disk space
